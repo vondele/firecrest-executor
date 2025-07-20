@@ -63,13 +63,29 @@ with FirecrestExecutor(
 This results in the expected output:
 
 ```text
-$ python demo_simple.py 
+$ python simple.py 
 Executing remotely, stay tuned...
 Success testing execution on nid005463 of clariden!
 Let's compute squares of 2..4:  [4.0, 9.0, 16.0]
 ```
 
 ## Getting started
+
+### Install the firecrest-executor
+
+Directly from PyPI:
+
+```bash
+pip install firecrest-executor
+```
+
+or clone from github:
+
+```bash
+git clone https://github.com/vondele/firecrest-executor.git
+cd firecrest-executor
+pip install -e .[examples]
+```
 
 ### Enable FirecREST
 
