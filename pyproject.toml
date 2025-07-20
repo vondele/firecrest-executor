@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "firecrest-executor"
+version = "0.1.0"
+description = "Execute python functions on a remote supercomputer"
+readme = "README.md"
+license = { text = "Apache-2.0"}
+keywords = ["HPC", "supercomputing", "executor", "firecrest"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python"
+]
+authors = [
+    { name = "Joost VandeVondele", email = "Joost.VandeVondele@gmail.com" }
+]
+dependencies = [
+    "pyfirecrest>=3.2.2",
+    "dill>=0.3.9"
+]
+requires-python = ">=3.8"
+
+[project.optional-dependencies]
+examples = [
+    "nevergrad"
+]
+
+[project.urls]
+Homepage = "https://github.com/vondele/firecrest-executor"
+Repository = "https://github.com/vondele/firecrest-executor"
+
+[tool.setuptools]
+py-modules = ["firecrest_executor"]
+
+[tool.setuptools.package-data]
+firecrest_executor = ["README.md", "LICENSE"]
