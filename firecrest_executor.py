@@ -211,13 +211,19 @@ class FirecrestExecutor(Executor):
         # pack in some python code, which will deserialize,
         # execute the function, and add its result to the output buffer.
         remote_code = f"""
-import dill
 import base64
 import sys
 
-payload_b64 = {payload_b64!r}
-payload = dill.loads(base64.b64decode(payload_b64))
-func, args, kwargs = payload
+def report_error(msg):
+    print("==== FirecrestExecutor: Error ====")
+    print(msg)
+    print("==== FirecrestExecutor: End Error ====", flush=True)
+    sys.exit(1)
+
+try:
+    import dill
+except Exception as e:
+    report_error(f"Failed to import dill, ensure it is installed on the remote system: {{e}}")
 
 # Version checks
 expected_py_version = {sys.version_info[:3]!r}
@@ -226,23 +232,23 @@ actual_py_version = sys.version_info[:3]
 actual_dill_version = dill.__version__
 
 if actual_py_version != expected_py_version:
-    print(f"==== FirecrestExecutor: Version Mismatch ====")
-    print(f"Python version mismatch: expected {{expected_py_version}}, got {{actual_py_version}}", file=sys.stderr)
-    sys.exit(1)
+    report_error(f"Python version mismatch between local and remote systems: local {{expected_py_version}}, remote {{actual_py_version}}")
 if actual_dill_version != expected_dill_version:
-    print(f"==== FirecrestExecutor: Version Mismatch ====")
-    print(f"Dill version mismatch: expected {{expected_dill_version}}, got {{actual_dill_version}}", file=sys.stderr)
-    sys.exit(1)
-print("==== FirecrestExecutor: Executing remote code ====", flush=True)
+    report_error(f"Dill version mismatch between local and remote systems: local {{expected_dill_version}}, remote {{actual_dill_version}}")
 
-result = func(*args, **kwargs)
-sys.stdout.flush()
-sys.stderr.flush()
+print("==== FirecrestExecutor: Executing remote code ====", flush=True)
+try:
+    payload_b64 = {payload_b64!r}
+    func, args, kwargs = dill.loads(base64.b64decode(payload_b64))
+    result = func(*args, **kwargs)
+    payload_b64 = base64.b64encode(dill.dumps(result)).decode()
+except Exception as e:
+    report_error(f"Remote code execution failed with exception: {{e}}")
 
 # Print marker and write base64-encoded dill result to buffer
 print("==== FirecrestExecutor: Dill Encoded Result ====")
-print(base64.b64encode(dill.dumps(result)).decode(), end="")
-print("\\n==== FirecrestExecutor: End Encoded Result ====", flush=True)
+print(payload_b64, end="")
+print("\\n==== FirecrestExecutor: End Dill Encoded Result ====", flush=True)
         """
 
         # pack in the form of a bash command, which will decode the
@@ -259,14 +265,22 @@ srun {" ".join(self._srun_options)} bash -c '{bash_command}'
         return slurm_script
 
     def _convert_output(self, output: str) -> bytes:
+        # Catch error conditions
+        error_marker_start = "==== FirecrestExecutor: Error ====\n"
+        error_marker_end = "==== FirecrestExecutor: End Error ====\n"
+        if error_marker_start in output:
+            sections = output.split(error_marker_start, 1)
+            error_section = sections[1].split(error_marker_end, 1)[0].strip()
+            raise RuntimeError(f"Error in remote execution: {error_section}")
+
         # Split output at the marker and get the base64-encoded dill result
         marker_start = "==== FirecrestExecutor: Dill Encoded Result ====\n"
-        marker_end = "==== FirecrestExecutor: End Encoded Result ====\n"
-
+        marker_end = "==== FirecrestExecutor: End Dill Encoded Result ====\n"
         sections = output.split(marker_start, 1)
         if len(sections) != 2:
-            raise RuntimeError("Start marker not found in subprocess output")
+            raise RuntimeError("Result marker not found in subprocess output")
         result_section = sections[1].split(marker_end, 1)[0].strip()
+
         return base64.b64decode(result_section)
 
     def _run_remote_payload(self, payload: bytes) -> bytes:
