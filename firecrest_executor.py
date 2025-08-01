@@ -7,6 +7,7 @@ import threading
 import time
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from typing import Any, Callable, TypeVar, cast, Iterator
+from pathlib import Path
 
 from firecrest.Authorization import ClientCredentialsAuth
 from firecrest.v2 import Firecrest
@@ -326,6 +327,10 @@ srun {" ".join(self._srun_options)} bash -c '{bash_command}'
                 break
             except Exception as e:
                 msg = f"Failed to obtain result from {job_id} (attempt {attempt + 1} / {self._task_retries + 1}): {e}"
+                if "version mismatch" in str(e):
+                    self._task_retries = (
+                        0  # Stop retrying if there's a version mismatch
+                    )
                 if attempt >= self._task_retries:
                     self._logger.error(msg)
                     raise
@@ -376,17 +381,27 @@ srun {" ".join(self._srun_options)} bash -c '{bash_command}'
                 )
 
     def _retrieve_output_path(self, job_id: str) -> str:
-        while True:
+        fatal_retries = 0
+        while fatal_retries < 50:
             try:
                 job_metadata = self._client.job_metadata(self._vCluster, job_id)[0]
                 output_path = job_metadata["standardOutput"]
                 self._logger.info(f"Job {job_id} metadata retrieved")
                 return output_path
             except Exception as e:
+                # TODO. Somehow this one doesn't resolve over time, there ought to be a better solution.
+                if "Job not found" in str(e):
+                    fatal_retries += 1
                 self._logger.warning(
                     f"Failed to get job metadata for job {job_id}: {e}. Retrying in {self._sleep_interval} seconds..."
                 )
                 time.sleep(self._sleep_interval)
+        # guestimate the output path if metadata retrieval fails after retries. If that file doesn't exist, it will be handled in _retrieve_job_output.
+        output_path = str(Path(self._working_dir) / f"slurm-{job_id}.out")
+        self._logger.error(
+            f"Failed to get job metadata for job {job_id}: assuming output path {output_path}."
+        )
+        return output_path
 
     def _retrieve_job_output(self, job_id: str, output_path: str) -> str:
         while True:
